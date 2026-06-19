@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>빛 흡수 스펙트럼 분석기</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#0e141b; --surface:#151e29; --surface2:#1c2734; --border:#2a3744;
+    --text:#e7edf3; --muted:#8b99a8; --faint:#5d6b7a;
+    --accent:#56c5d0; --accent-d:#3aa7b2; --accent-ink:#06222a;
+    --warn:#f0b65e; --bad:#f0776a;
+    --s1:#f0883e; --s2:#58a6ff; --s3:#bc8cff; --s4:#56d364; --s5:#f778ba; --s6:#e3b341;
+    --radius:12px; --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;
+       -webkit-font-smoothing:antialiased;font-size:15px}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 80px}
+  a{color:var(--accent)}
+  h1{font-size:25px;font-weight:600;letter-spacing:-.02em;margin:0}
+  h2{font-size:16px;font-weight:600;letter-spacing:-.01em;margin:0 0 14px;
+     display:flex;align-items:center;gap:9px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+           color:var(--accent);font-weight:500}
+  .lede{color:var(--muted);margin:8px 0 0;max-width:60ch}
+  .spectrum-bar{height:5px;border-radius:3px;margin:18px 0 26px;
+    background:linear-gradient(90deg,#7b4fd0 0%,#4060e0 14%,#2d9fd8 28%,#23c08a 44%,
+      #8ec63f 56%,#f2d23a 66%,#f29a2e 78%,#e0492d 88%,#7a1a14 100%)}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+         padding:20px;margin-bottom:18px}
+  .step-num{font-family:var(--mono);font-size:12px;color:var(--accent-ink);background:var(--accent);
+            width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;
+            justify-content:center;font-weight:600;flex:none}
+  .muted{color:var(--muted)}
+  .drop{border:1.5px dashed var(--border);border-radius:10px;padding:30px 20px;text-align:center;
+        transition:border-color .15s,background .15s;cursor:pointer;background:var(--surface2)}
+  .drop.drag{border-color:var(--accent);background:#13303a}
+  .drop strong{color:var(--text)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button,.btn{font-family:var(--sans);font-size:14px;border-radius:8px;border:1px solid var(--border);
+    background:var(--surface2);color:var(--text);padding:9px 15px;cursor:pointer;transition:.12s}
+  button:hover,.btn:hover{border-color:var(--accent-d)}
+  .btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+  .btn-primary:hover{background:var(--accent-d);border-color:var(--accent-d)}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  textarea{width:100%;min-height:120px;background:var(--bg);color:var(--text);border:1px solid var(--border);
+    border-radius:8px;padding:11px;font-family:var(--mono);font-size:12.5px;resize:vertical}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  .maptable th,.maptable td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)}
+  .maptable th{color:var(--muted);font-weight:500;font-size:12px}
+  select,input[type=text],input[type=number]{background:var(--bg);color:var(--text);
+    border:1px solid var(--border);border-radius:7px;padding:7px 9px;font-family:var(--sans);font-size:13.5px}
+  .swatch{width:11px;height:11px;border-radius:3px;display:inline-block;vertical-align:-1px;margin-right:7px}
+  .chartbox{position:relative;height:340px}
+  .chart-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px}
+  .toggle{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden}
+  .toggle button{border:0;border-radius:0;background:transparent;padding:6px 13px;font-size:13px}
+  .toggle button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(186px,1fr));gap:12px}
+  .card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 15px}
+  .card .name{font-weight:600;display:flex;align-items:center;margin-bottom:9px}
+  .metric{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-size:13px}
+  .metric .v{font-family:var(--mono);font-size:15px;font-weight:600}
+  .metric .lbl{color:var(--muted);font-size:12.5px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:10px}
+  .legend span{display:inline-flex;align-items:center}
+  .hint{font-size:12.5px;color:var(--faint);margin-top:10px}
+  .note{background:#13303a;border:1px solid #244c56;border-radius:9px;padding:12px 14px;
+        font-size:13px;color:#bfe6ec;margin-top:14px}
+  .status{font-size:13px;margin-top:10px;min-height:18px}
+  .status.warn{color:var(--warn)} .status.bad{color:var(--bad)} .status.ok{color:var(--accent)}
+  .datawrap{max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:9px;margin-top:6px}
+  .dtable th,.dtable td{padding:5px 10px;text-align:right;border-bottom:1px solid var(--border);
+    font-family:var(--mono);font-size:12px;white-space:nowrap}
+  .dtable th{position:sticky;top:0;background:var(--surface2);color:var(--muted);font-weight:500}
+  .dtable td:first-child,.dtable th:first-child{text-align:left;color:var(--text)}
+  .hidden{display:none}
+  .nirctl{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
+  .nirctl input{width:70px}
+  @media (max-width:560px){ .chartbox{height:280px} h1{font-size:21px} }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">광섬유 프로브 · 세기 측정 모드</div>
+    <h1>빛 흡수 스펙트럼 분석기</h1>
+    <p class="lede">분광계로 측정한 세기(intensity) 스펙트럼을 올리면 파장별 반사율 R(λ)와 흡수율 A(λ)를
+      자동으로 계산해 그래프로 보여주고, 엑셀로 내려받게 해줍니다.</p>
+    <div class="spectrum-bar" aria-hidden="true"></div>
+  </header>
+
+  <!-- STEP 1 -->
+  <section class="panel">
+    <h2><span class="step-num">1</span>데이터 올리기</h2>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="파일 선택 또는 끌어다 놓기">
+      <strong>CSV 또는 엑셀 파일</strong>을 끌어다 놓거나 클릭해서 선택<br>
+      <span class="muted" style="font-size:13px">첫 열은 파장(nm), 나머지 열은 암·백색·시료의 세기 값</span>
+      <input type="file" id="file" accept=".csv,.xlsx,.xls,.tsv,.txt" class="hidden">
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="btn-example">예시 데이터로 먼저 보기</button>
+      <button id="btn-paste-toggle">직접 붙여넣기</button>
+    </div>
+    <div id="paste-area" class="hidden" style="margin-top:12px">
+      <textarea id="paste" placeholder="파장,암,백색,검은 종이,초흑색 도료&#10;380,41,2390,...,...&#10;385,40,2402,...,..."></textarea>
+      <button id="btn-paste-load" style="margin-top:8px">붙여넣은 데이터 읽기</button>
+    </div>
+    <div class="status" id="status1"></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="panel hidden" id="map-panel">
+    <h2><span class="step-num">2</span>열 지정하기</h2>
+    <p class="muted" style="margin-top:-6px;font-size:13.5px">각 열의 역할을 확인하세요. 흡수율 계산에는
+      <b>파장</b>·<b>백색</b> 열이 필요합니다(암 열은 있으면 더 정확합니다).</p>
+    <div style="overflow-x:auto">
+      <table class="maptable" id="maptable">
+        <thead><tr><th>열</th><th>역할</th><th>시료 이름</th><th>미리보기</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn-primary" id="btn-analyze">분석하기</button>
+      <span class="status" id="status2"></span>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="panel hidden" id="result-panel">
+    <h2><span class="step-num">3</span>분석 결과</h2>
+
+    <div class="chart-head"><h2 style="margin:0;font-size:15px">파장별 세기 (raw intensity)</h2></div>
+    <div class="chartbox"><canvas id="chartI"></canvas></div>
+
+    <div class="chart-head" style="margin-top:26px">
+      <h2 style="margin:0;font-size:15px" id="abs-title">파장별 흡수율 A(λ)</h2>
+      <div class="row">
+        <label class="nirctl">근적외선 경계
+          <input type="number" id="nir" value="700" min="400" max="900" step="10"> nm</label>
+        <div class="toggle" role="group" aria-label="흡수율/반사율 전환">
+          <button id="tg-A" aria-pressed="true">흡수율 A</button>
+          <button id="tg-R" aria-pressed="false">반사율 R</button>
+        </div>
+      </div>
+    </div>
+    <div class="chartbox"><canvas id="chartA"></canvas></div>
+    <div class="legend" id="bandlegend">
+      <span><span class="swatch" style="background:linear-gradient(90deg,#7b4fd0,#23c08a,#e0492d)"></span>가시광 380–700nm</span>
+      <span><span class="swatch" style="background:#2a3744"></span>근적외선 (경계 이상)</span>
+    </div>
+
+    <h2 style="margin:26px 0 12px;font-size:15px">시료별 요약</h2>
+    <div class="cards" id="cards"></div>
+
+    <div class="row" style="margin-top:20px">
+      <button class="btn-primary" id="btn-xlsx">엑셀로 내려받기</button>
+      <button id="btn-table">계산표 보기</button>
+    </div>
+    <div id="tablewrap" class="hidden"></div>
+
+    <div class="note">측정값은 <b>흰색 표준 대비 상대 반사율</b>입니다(절대 흡수율은 적분구가 필요).
+      불투명 시료로 가정해 A(λ)=1−R(λ)로 계산합니다. 가시광에선 새까매 보여도 근적외선에서
+      반사율이 올라가는 시료가 흔하니, 두 구간 평균을 함께 비교하세요.</div>
+  </section>
+
+  <p class="hint" style="text-align:center">고등학교 과학탐구용 · 모든 계산은 브라우저 안에서만 처리되며 데이터는 어디에도 전송되지 않습니다.</p>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let DATA = null;        // {headers:[], cols:[[...]]}
+let RESULT = null;      // computed result for export
+let chartI=null, chartA=null;
+let absMode = 'A';
+
+/* ---------- 파장 → 가시광 RGB (근사) ---------- */
+function nmToRGB(wl){
+  let r=0,g=0,b=0;
+  if(wl>=380&&wl<440){r=-(wl-440)/60;b=1;}
+  else if(wl<490){g=(wl-440)/50;b=1;}
+  else if(wl<510){g=1;b=-(wl-510)/20;}
+  else if(wl<580){r=(wl-510)/70;g=1;}
+  else if(wl<645){r=1;g=-(wl-645)/65;}
+  else if(wl<=780){r=1;}
+  else {r=.35;} // 근적외선: 보이지 않음 → 어두운 적색
+  let f=1;
+  if(wl>=380&&wl<420)f=.3+.7*(wl-380)/40;
+  else if(wl>700&&wl<=780)f=.3+.7*(780-wl)/80;
+  else if(wl>780)f=.25;
+  const c=v=>Math.round(255*Math.max(0,Math.min(1,v*f)));
+  return [c(r),c(g),c(b)];
+}
+
+/* ---------- 입력 파싱 ---------- */
+function ingestRows(rows){
+  rows = rows.filter(r => r && r.some(c => c!==null && c!=='' && c!==undefined));
+  if(rows.length<2){ setStatus('status1','데이터 행이 부족합니다.','bad'); return; }
+  // 헤더 판별: 첫 행에 숫자가 아닌 셀이 다수면 헤더
+  const first = rows[0];
+  const nonNum = first.filter(c => c!=='' && c!==null && isNaN(parseFloat(c))).length;
+  let headers, body;
+  if(nonNum >= Math.ceil(first.length/2)){ headers = first.map(String); body = rows.slice(1); }
+  else { headers = first.map((_,i)=>'열'+(i+1)); body = rows; }
+  const ncol = headers.length;
+  const cols = Array.from({length:ncol},()=>[]);
+  for(const r of body){
+    for(let i=0;i<ncol;i++){
+      const v = parseFloat(r[i]);
+      cols[i].push(isNaN(v)?null:v);
+    }
+  }
+  DATA = {headers, cols};
+  renderMapping();
+  $('#map-panel').classList.remove('hidden');
+  $('#map-panel').scrollIntoView({behavior:'smooth',block:'start'});
+  setStatus('status1', headers.length+'개 열, '+body.length+'행을 읽었습니다.','ok');
+}
+function parseFile(file){
+  const ext = file.name.split('.').pop().toLowerCase();
+  if(ext==='xlsx'||ext==='xls'){
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      ingestRows(XLSX.utils.sheet_to_json(ws,{header:1}));
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    Papa.parse(file,{skipEmptyLines:true,complete:res=>ingestRows(res.data)});
+  }
+}
+
+/* ---------- 역할 자동 추정 + 매핑 UI ---------- */
+function guessRole(name,colIndex,values){
+  const n=(name||'').toLowerCase();
+  if(/wave|λ|wl|nm|파장/.test(n)) return 'wl';
+  if(/dark|암|background|bg|baseline|기준암/.test(n)) return 'dark';
+  if(/white|ref|reference|백색|표준|기준/.test(n)) return 'white';
+  if(colIndex===0){ // 첫 열이 단조증가 & 300~1200 → 파장
+    const v=values.filter(x=>x!=null);
+    if(v.length>3 && v[0]>=300 && v[v.length-1]<=1200 && v[v.length-1]>v[0]) return 'wl';
+  }
+  return 'sample';
+}
+function renderMapping(){
+  const tb=$('#maptable tbody'); tb.innerHTML='';
+  let wlGuessed=false;
+  DATA.roles=[]; DATA.names=[];
+  DATA.headers.forEach((h,i)=>{
+    let role=guessRole(h,i,DATA.cols[i]);
+    if(role==='wl'){ if(wlGuessed) role='sample'; else wlGuessed=true; }
+    DATA.roles[i]=role; DATA.names[i]=h;
+    const preview=DATA.cols[i].filter(x=>x!=null).slice(0,3).map(x=>Math.round(x*100)/100).join(', ');
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><b>${escapeHtml(h)}</b></td>
+      <td><select data-i="${i}" class="rolesel">
+        <option value="wl">파장 (nm)</option>
+        <option value="dark">암 (dark)</option>
+        <option value="white">백색 기준 (white)</option>
+        <option value="sample">시료</option>
+        <option value="ignore">사용 안 함</option></select></td>
+      <td><input type="text" data-i="${i}" class="namein" value="${escapeHtml(h)}"></td>
+      <td class="muted" style="font-family:var(--mono);font-size:12px">${preview}…</td>`;
+    tb.appendChild(tr);
+    tr.querySelector('select').value=role;
+  });
+  tb.querySelectorAll('.rolesel').forEach(s=>s.onchange=()=>{DATA.roles[s.dataset.i]=s.value;});
+  tb.querySelectorAll('.namein').forEach(s=>s.oninput=()=>{DATA.names[s.dataset.i]=s.value;});
+}
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+/* ---------- 분석 ---------- */
+function analyze(){
+  const roles=DATA.roles;
+  const wlIdx=roles.indexOf('wl');
+  if(wlIdx<0){ setStatus('status2','파장 열을 지정하세요.','bad'); return; }
+  const darkIdx=roles.indexOf('dark');
+  const whiteIdx=roles.indexOf('white');
+  const sampleIdx=roles.map((r,i)=>r==='sample'?i:-1).filter(i=>i>=0);
+  if(sampleIdx.length===0){ setStatus('status2','시료 열을 최소 1개 지정하세요.','bad'); return; }
+
+  const wl=DATA.cols[wlIdx];
+  const dark=darkIdx>=0?DATA.cols[darkIdx]:null;
+  const white=whiteIdx>=0?DATA.cols[whiteIdx]:null;
+  const haveA = white!==null;
+
+  const N=wl.length;
+  const samples=sampleIdx.map(i=>{
+    const vals=DATA.cols[i], name=DATA.names[i];
+    const R=[],A=[];
+    for(let k=0;k<N;k++){
+      const d=dark?dark[k]:0;
+      let r=null;
+      if(haveA && vals[k]!=null && white[k]!=null && d!=null){
+        const denom=white[k]-d;
+        if(denom>0){ r=(vals[k]-d)/denom; r=Math.max(0,Math.min(1,r)); }
+      }
+      R.push(r); A.push(r==null?null:1-r);
+    }
+    return {name,intensity:vals,R,A};
+  });
+  RESULT={wl,dark,white,darkIdx,whiteIdx,samples,haveA};
+  setStatus('status2', haveA?'':'백색 기준 열이 없어 세기 그래프만 표시합니다.', haveA?'ok':'warn');
+  drawIntensity(); drawAbsorption(); drawCards(); buildTable();
+  $('#result-panel').classList.toggle('hidden',false);
+  $('#abs-title').parentElement.classList.toggle('hidden',!haveA);
+  $('#chartA').parentElement.classList.toggle('hidden',!haveA);
+  $('#bandlegend').classList.toggle('hidden',!haveA);
+  $('#btn-xlsx').disabled=false;
+  $('#result-panel').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+const SCOLORS=['#f0883e','#58a6ff','#bc8cff','#56d364','#f778ba','#e3b341'];
+const axisColor='#8b99a8', gridColor='rgba(120,140,160,.12)';
+function pts(wl,arr){const o=[];for(let i=0;i<wl.length;i++)if(wl[i]!=null&&arr[i]!=null)o.push({x:wl[i],y:arr[i]});return o;}
+
+function baseOpts(yTitle,yMax){
+  return {responsive:true,maintainAspectRatio:false,animation:{duration:reduce()?0:400},
+    interaction:{mode:'nearest',intersect:false},
+    scales:{
+      x:{type:'linear',title:{display:true,text:'파장 (nm)',color:axisColor},
+         ticks:{color:axisColor},grid:{color:gridColor}},
+      y:{title:{display:true,text:yTitle,color:axisColor},ticks:{color:axisColor},
+         grid:{color:gridColor},min:0,max:yMax}},
+    plugins:{legend:{labels:{color:'#cdd6df',usePointStyle:true,pointStyleWidth:10,boxHeight:7}},
+      tooltip:{callbacks:{title:i=>i[0].parsed.x+' nm'}}}};
+}
+function reduce(){return matchMedia('(prefers-reduced-motion:reduce)').matches;}
+
+function drawIntensity(){
+  const {wl,dark,white,samples}=RESULT;
+  const ds=[];
+  if(dark) ds.push({label:'암 (dark)',data:pts(wl,dark),borderColor:'#6b7785',borderWidth:1.2,pointRadius:0,tension:.15});
+  if(white) ds.push({label:'백색 (white)',data:pts(wl,white),borderColor:'#c9d4e0',borderWidth:1.2,pointRadius:0,tension:.15,borderDash:[4,3]});
+  samples.forEach((s,i)=>ds.push({label:s.name,data:pts(wl,s.intensity),borderColor:SCOLORS[i%6],borderWidth:1.8,pointRadius:0,tension:.15}));
+  if(chartI)chartI.destroy();
+  chartI=new Chart($('#chartI'),{type:'line',data:{datasets:ds},options:baseOpts('세기 (counts)',undefined)});
+}
+
+const spectrumBand={id:'spectrumBand',beforeDatasetsDraw(chart){
+  const {ctx,chartArea:ca,scales}=chart; if(!ca)return;
+  const boundary=Math.max(400,Math.min(900,+$('#nir').value||700));
+  const x=v=>Math.max(ca.left,Math.min(ca.right,scales.x.getPixelForValue(v)));
+  const xL=x(380), xB=x(boundary), xR=ca.right;
+  ctx.save();
+  // 가시광: 실제 파장색 그라데이션 (옅게)
+  if(xB>xL){
+    const g=ctx.createLinearGradient(xL,0,xB,0);
+    for(let wl=380;wl<=Math.min(700,boundary);wl+=20){
+      const t=(wl-380)/(Math.min(700,boundary)-380);
+      const[r,gg,b]=nmToRGB(wl); g.addColorStop(Math.max(0,Math.min(1,t)),`rgba(${r},${gg},${b},.13)`);
+    }
+    ctx.fillStyle=g; ctx.fillRect(xL,ca.top,xB-xL,ca.bottom-ca.top);
+  }
+  // 근적외선: 옅은 회색
+  if(xR>xB){ ctx.fillStyle='rgba(150,165,180,.045)'; ctx.fillRect(xB,ca.top,xR-xB,ca.bottom-ca.top);
+    ctx.strokeStyle='rgba(150,165,180,.35)';ctx.setLineDash([4,4]);ctx.beginPath();
+    ctx.moveTo(xB,ca.top);ctx.lineTo(xB,ca.bottom);ctx.stroke();}
+  ctx.restore();
+}};
+
+function drawAbsorption(){
+  if(!RESULT.haveA)return;
+  const {wl,samples}=RESULT;
+  const key=absMode;
+  const ds=samples.map((s,i)=>({label:s.name,data:pts(wl,s[key]),borderColor:SCOLORS[i%6],
+    borderWidth:2,pointRadius:0,tension:.15}));
+  if(chartA)chartA.destroy();
+  chartA=new Chart($('#chartA'),{type:'line',data:{datasets:ds},
+    options:baseOpts(absMode==='A'?'흡수율 A':'반사율 R',1),plugins:[spectrumBand]});
+}
+
+function rangeStats(wl,arr,lo,hi){
+  let sum=0,n=0,mx=-1,mxwl=null;
+  for(let i=0;i<wl.length;i++){
+    if(wl[i]==null||arr[i]==null)continue;
+    if(wl[i]>=lo&&wl[i]<=hi){sum+=arr[i];n++;}
+    if(arr[i]>mx){mx=arr[i];mxwl=wl[i];}
+  }
+  return {avg:n?sum/n:null,max:mx<0?null:mx,maxwl:mxwl};
+}
+function pct(x){return x==null?'—':(x*100).toFixed(1)+'%';}
+function drawCards(){
+  if(!RESULT.haveA){$('#cards').innerHTML='<p class="muted">백색 기준 열이 없어 흡수율 요약을 계산할 수 없습니다.</p>';return;}
+  const {wl,samples}=RESULT;
+  const boundary=+$('#nir').value||700;
+  const wlmin=Math.min(...wl.filter(x=>x!=null)), wlmax=Math.max(...wl.filter(x=>x!=null));
+  $('#cards').innerHTML=samples.map((s,i)=>{
+    const all=rangeStats(wl,s.A,wlmin,wlmax);
+    const vis=rangeStats(wl,s.A,wlmin,boundary);
+    const nir=rangeStats(wl,s.A,boundary,wlmax);
+    return `<div class="card"><div class="name"><span class="swatch" style="background:${SCOLORS[i%6]}"></span>${escapeHtml(s.name)}</div>
+      <div class="metric"><span class="lbl">전체 평균 A</span><span class="v">${pct(all.avg)}</span></div>
+      <div class="metric"><span class="lbl">가시광 평균</span><span class="v">${pct(vis.avg)}</span></div>
+      <div class="metric"><span class="lbl">근적외선 평균</span><span class="v">${pct(nir.avg)}</span></div>
+      <div class="metric"><span class="lbl">최대 흡수</span><span class="v">${pct(all.max)}</span></div>
+      <div class="metric"><span class="lbl">최대 흡수 파장</span><span class="v">${all.maxwl==null?'—':all.maxwl+' nm'}</span></div>
+    </div>`;
+  }).join('');
+}
+
+function buildTable(){
+  const {wl,samples,haveA}=RESULT;
+  let head='<tr><th>λ(nm)</th>'+samples.map(s=>haveA?`<th>R·${escapeHtml(s.name)}</th><th>A·${escapeHtml(s.name)}</th>`:`<th>I·${escapeHtml(s.name)}</th>`).join('')+'</tr>';
+  let rows='';
+  for(let k=0;k<wl.length;k++){
+    if(wl[k]==null)continue;
+    rows+='<tr><td>'+wl[k]+'</td>'+samples.map(s=>{
+      if(haveA){const r=s.R[k],a=s.A[k];return `<td>${r==null?'—':r.toFixed(3)}</td><td>${a==null?'—':a.toFixed(3)}</td>`;}
+      return `<td>${s.intensity[k]==null?'—':s.intensity[k]}</td>`;
+    }).join('')+'</tr>';
+  }
+  $('#tablewrap').innerHTML=`<div class="datawrap"><table class="dtable"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+/* ---------- 엑셀 내보내기 ---------- */
+function exportXlsx(){
+  if(!RESULT)return;
+  const {wl,dark,white,samples,haveA}=RESULT;
+  const head=['파장(nm)']; if(dark)head.push('I_dark'); if(white)head.push('I_white');
+  samples.forEach(s=>head.push('I_'+s.name));
+  if(haveA)samples.forEach(s=>{head.push('R_'+s.name);head.push('A_'+s.name);});
+  const aoa=[head];
+  for(let k=0;k<wl.length;k++){
+    if(wl[k]==null)continue;
+    const row=[wl[k]]; if(dark)row.push(dark[k]); if(white)row.push(white[k]);
+    samples.forEach(s=>row.push(s.intensity[k]));
+    if(haveA)samples.forEach(s=>{row.push(s.R[k]==null?'':+s.R[k].toFixed(4));row.push(s.A[k]==null?'':+s.A[k].toFixed(4));});
+    aoa.push(row);
+  }
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),'데이터');
+  if(haveA){
+    const b=+$('#nir').value||700;
+    const wlmin=Math.min(...wl.filter(x=>x!=null)),wlmax=Math.max(...wl.filter(x=>x!=null));
+    const sumh=['항목',...samples.map(s=>s.name)];
+    const mk=(label,fn)=>[label,...samples.map(s=>fn(s))];
+    const f4=v=>v==null?'—':+ (v).toFixed(4);
+    const sum=[sumh,
+      mk('전체 평균 A',s=>f4(rangeStats(wl,s.A,wlmin,wlmax).avg)),
+      mk(`가시광 평균 A (≤${b})`,s=>f4(rangeStats(wl,s.A,wlmin,b).avg)),
+      mk(`근적외선 평균 A (≥${b})`,s=>f4(rangeStats(wl,s.A,b,wlmax).avg)),
+      mk('최대 흡수율 A',s=>f4(rangeStats(wl,s.A,wlmin,wlmax).max)),
+      mk('최대 흡수 파장(nm)',s=>rangeStats(wl,s.A,wlmin,wlmax).maxwl)];
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(sum),'요약');
+  }
+  XLSX.writeFile(wb,'빛흡수_분석결과.xlsx');
+}
+
+/* ---------- 예시 데이터 ---------- */
+function exampleRows(){
+  const rows=[['파장','암','백색','검은 종이','초흑색 도료']];
+  const Iw=l=>1500+2000*Math.exp(-Math.pow((l-650)/300,2));
+  const nz=s=>(Math.random()*2-1)*s;
+  for(let l=380;l<=950;l+=5){
+    const d=40+nz(3), w=Iw(l)+nz(25);
+    const r1=0.05+0.30*Math.pow((l-380)/570,2), r2=0.012;
+    rows.push([l,Math.round(d),Math.round(w),
+      Math.round(d+r1*(w-d)+nz(15)),Math.round(d+r2*(w-d)+nz(6))]);
+  }
+  return rows;
+}
+
+/* ---------- 유틸 ---------- */
+function setStatus(id,msg,cls){const e=$('#'+id);e.textContent=msg||'';e.className='status'+(cls?' '+cls:'');}
+
+/* ---------- 이벤트 ---------- */
+window.addEventListener('load',()=>{
+  const drop=$('#drop'),file=$('#file');
+  drop.onclick=()=>file.click();
+  drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click();}};
+  file.onchange=e=>{if(e.target.files[0])parseFile(e.target.files[0]);};
+  ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag');}));
+  drop.addEventListener('drop',e=>{if(e.dataTransfer.files[0])parseFile(e.dataTransfer.files[0]);});
+
+  $('#btn-example').onclick=()=>{ingestRows(exampleRows());setStatus('status1','예시 데이터를 불러왔습니다. 본인 측정값으로 바꿔도 됩니다.','ok');};
+  $('#btn-paste-toggle').onclick=()=>$('#paste-area').classList.toggle('hidden');
+  $('#btn-paste-load').onclick=()=>{const t=$('#paste').value.trim();if(!t){setStatus('status1','붙여넣은 내용이 없습니다.','warn');return;}ingestRows(Papa.parse(t,{skipEmptyLines:true}).data);};
+  $('#btn-analyze').onclick=analyze;
+  $('#btn-xlsx').onclick=exportXlsx;
+  $('#btn-table').onclick=()=>{const w=$('#tablewrap');w.classList.toggle('hidden');$('#btn-table').textContent=w.classList.contains('hidden')?'계산표 보기':'계산표 숨기기';};
+  $('#nir').oninput=()=>{if(RESULT){drawAbsorption();drawCards();}};
+  $('#tg-A').onclick=()=>{absMode='A';$('#tg-A').setAttribute('aria-pressed','true');$('#tg-R').setAttribute('aria-pressed','false');$('#abs-title').textContent='파장별 흡수율 A(λ)';drawAbsorption();};
+  $('#tg-R').onclick=()=>{absMode='R';$('#tg-R').setAttribute('aria-pressed','true');$('#tg-A').setAttribute('aria-pressed','false');$('#abs-title').textContent='파장별 반사율 R(λ)';drawAbsorption();};
+});
+</script>
+</body>
+</html>
